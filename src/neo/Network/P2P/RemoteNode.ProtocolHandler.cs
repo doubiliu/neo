@@ -310,7 +310,7 @@ namespace Neo.Network.P2P
             switch (inventory)
             {
                 case Transaction transaction:
-                    if (!system.ContainsTransaction(transaction.Hash))
+                    if (!system.ContainsTransaction(transaction))
                         system.TxRouter.Tell(new TransactionRouter.Preverify(transaction, true));
                     break;
                 case Block block:

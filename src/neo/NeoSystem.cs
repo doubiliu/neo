@@ -9,6 +9,8 @@
 // modifications are permitted.
 
 using Akka.Actor;
+using Neo.Cryptography;
+using Neo.IO;
 using Neo.IO.Caching;
 using Neo.Ledger;
 using Neo.Network.P2P;
@@ -100,6 +102,8 @@ namespace Neo
         private readonly IStore store;
         private ChannelsConfig start_message = null;
         private int suspend = 0;
+        public BloomFilter[] preBloomFilters;
+        public uint startheight;
 
         static NeoSystem()
         {
@@ -273,12 +277,34 @@ namespace Neo
         /// <summary>
         /// Determines whether the specified transaction exists in the memory pool or storage.
         /// </summary>
-        /// <param name="hash">The hash of the transaction</param>
-        /// <returns><see langword="true"/> if the transaction exists; otherwise, <see langword="false"/>.</returns>
-        public bool ContainsTransaction(UInt256 hash)
+        /// <param name="tx">transaction</param>
+        /// <returns>if the transaction exists; otherwise, <see langword="false"/></returns>
+        public bool ContainsTransaction(Transaction tx)
         {
-            if (MemPool.ContainsKey(hash)) return true;
-            return NativeContract.Ledger.ContainsTransaction(StoreView, hash);
+            int check = PreTransactionNullFilter(tx);
+            if (check <= 0)
+            {
+                if (MemPool.ContainsKey(tx.Hash)) return true;
+                return NativeContract.Ledger.ContainsTransaction(StoreView, tx.Hash);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Determines whether the specified transaction exists in the bloom filter.
+        /// </summary>
+        /// <param name="transaction"></param>
+        /// <returns>Dxists,return 1;Unknown,return 0; otherwise, return -1</returns>
+        private int PreTransactionNullFilter(Transaction transaction)
+        {
+            //交易有效高度如果小于启动高度+48小时对应高度，直接返回可能存在，预热阶段
+            if (transaction.ValidUntilBlock <= startheight + 2 * Settings.MaxValidUntilBlockIncrement)
+                return 0;
+            //交易有效高度在当前高度[+0h,+24h]区间外，直接返回不存在，因为会被内存池过滤
+            if (transaction.ValidUntilBlock - NativeContract.Ledger.CurrentIndex(StoreView) < 0 || transaction.ValidUntilBlock - NativeContract.Ledger.CurrentIndex(StoreView) > Settings.MaxValidUntilBlockIncrement)
+                return 1;
+            if (!preBloomFilters[0].Check(transaction.Hash.ToArray()) && !preBloomFilters[1].Check(transaction.Hash.ToArray())) return 1;
+            return -1;
         }
     }
 }

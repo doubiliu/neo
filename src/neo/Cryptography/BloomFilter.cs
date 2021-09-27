@@ -84,5 +84,25 @@ namespace Neo.Cryptography
         {
             bits.CopyTo(newBits, 0);
         }
+
+        /// <summary>
+        /// Deelp clone
+        /// </summary>
+        /// <returns>BloomFilter</returns>
+        public BloomFilter DeepClone()
+        {
+            var newBits = new byte[M];
+            GetBits(newBits);
+            return new BloomFilter(M, K, Tweak, newBits);
+        }
+
+        /// <summary>
+        /// Clean filter
+        /// </summary>
+        /// <returns>BloomFilter</returns>
+        public BloomFilter Reset()
+        {
+            return new BloomFilter(M, K, Tweak);
+        }
     }
 }

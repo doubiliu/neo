@@ -11,6 +11,8 @@
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.IO;
+using Neo.Cryptography;
+using Neo.IO;
 using Neo.IO.Actors;
 using Neo.Network.P2P;
 using Neo.Network.P2P.Payloads;
@@ -24,6 +26,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 namespace Neo.Ledger
 {
@@ -215,6 +218,9 @@ namespace Neo.Ledger
         {
             if (!NativeContract.Ledger.Initialized(system.StoreView))
                 Persist(system.GenesisBlock);
+            //Get start height
+            system.startheight = NativeContract.Ledger.CurrentIndex(system.StoreView);
+            system.preBloomFilters = new BloomFilter[] { new BloomFilter(256, 12, 12), new BloomFilter(256, 12, 12) };
             Sender.Tell(new object());
         }
 
@@ -327,7 +333,7 @@ namespace Neo.Ledger
 
         private VerifyResult OnNewTransaction(Transaction transaction)
         {
-            if (system.ContainsTransaction(transaction.Hash)) return VerifyResult.AlreadyExists;
+            if (system.ContainsTransaction(transaction)) return VerifyResult.AlreadyExists;
             return system.MemPool.TryAdd(transaction, system.StoreView);
         }
 
@@ -380,7 +386,7 @@ namespace Neo.Ledger
 
         private void OnTransaction(Transaction tx)
         {
-            if (system.ContainsTransaction(tx.Hash))
+            if (system.ContainsTransaction(tx))
                 SendRelayResult(tx, VerifyResult.AlreadyExists);
             else
                 system.TxRouter.Forward(new TransactionRouter.Preverify(tx, true));
@@ -427,6 +433,31 @@ namespace Neo.Ledger
                 }
                 foreach (IPersistencePlugin plugin in Plugin.PersistencePlugins)
                     plugin.OnPersist(system, block, snapshot, all_application_executed);
+                //update bloom filter
+                var bloomFilters = new BloomFilter[2] { system.preBloomFilters[0].DeepClone(), system.preBloomFilters[1].DeepClone() };
+                BloomFilter currentBloomFilter = null;
+                var blockIncrementDelta = (block.Index - system.startheight) % (2 * system.Settings.MaxValidUntilBlockIncrement);
+                if (blockIncrementDelta < system.Settings.MaxValidUntilBlockIncrement)
+                {
+                    if (blockIncrementDelta == 0)
+                    {
+                        bloomFilters[0] = bloomFilters[0].Reset();
+                        currentBloomFilter = bloomFilters[0];
+                    }
+                }
+                else
+                {
+                    if (blockIncrementDelta == system.Settings.MaxValidUntilBlockIncrement)
+                    {
+                        bloomFilters[1] = bloomFilters[1].Reset();
+                        currentBloomFilter = bloomFilters[1];
+                    }
+                }
+                foreach (Transaction tx in block.Transactions)
+                {
+                    currentBloomFilter.Add(tx.Hash.ToArray());
+                }
+                Interlocked.Exchange(ref system.preBloomFilters, bloomFilters);
                 snapshot.Commit();
                 List<Exception> commitExceptions = null;
                 foreach (IPersistencePlugin plugin in Plugin.PersistencePlugins)
@@ -454,6 +485,7 @@ namespace Neo.Ledger
             Context.System.EventStream.Publish(new PersistCompleted { Block = block });
             if (system.HeaderCache.TryRemoveFirst(out Header header))
                 Debug.Assert(header.Index == block.Index);
+
         }
 
         /// <summary>
