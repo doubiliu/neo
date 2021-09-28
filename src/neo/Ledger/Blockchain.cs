@@ -220,7 +220,7 @@ namespace Neo.Ledger
                 Persist(system.GenesisBlock);
             //Get start height
             system.startheight = NativeContract.Ledger.CurrentIndex(system.StoreView);
-            system.preBloomFilters = new BloomFilter[] { new BloomFilter(256, 12, 12), new BloomFilter(256, 12, 12) };
+            system.preBloomFilters = new BloomFilter[] { new BloomFilter(41407453, 10, 123456), new BloomFilter(41407453, 10, 123456) };
             Sender.Tell(new object());
         }
 

@@ -278,23 +278,26 @@ namespace Neo
         /// Determines whether the specified transaction exists in the memory pool or storage.
         /// </summary>
         /// <param name="tx">transaction</param>
-        /// <returns>if the transaction exists; otherwise, <see langword="false"/></returns>
+        /// <returns>if the transaction exists,return true; otherwise,return false</returns>
         public bool ContainsTransaction(Transaction tx)
         {
             int check = PreTransactionNullFilter(tx);
-            if (check <= 0)
-            {
-                if (MemPool.ContainsKey(tx.Hash)) return true;
-                return NativeContract.Ledger.ContainsTransaction(StoreView, tx.Hash);
+            switch (check) {
+                case 0:
+                    if (MemPool.ContainsKey(tx.Hash)) return true;
+                    return NativeContract.Ledger.ContainsTransaction(StoreView, tx.Hash);
+                case 1:
+                    return true;
+                default:
+                    return false;
             }
-            return false;
         }
 
         /// <summary>
         /// Determines whether the specified transaction exists in the bloom filter.
         /// </summary>
-        /// <param name="transaction"></param>
-        /// <returns>Dxists,return 1;Unknown,return 0; otherwise, return -1</returns>
+        /// <param name="transaction">transaction</param>
+        /// <returns>Not exists,return -1;Unknown,return 0; otherwise, return 1</returns>
         private int PreTransactionNullFilter(Transaction transaction)
         {
             //交易有效高度如果小于启动高度+48小时对应高度，直接返回可能存在，预热阶段
@@ -303,8 +306,8 @@ namespace Neo
             //交易有效高度在当前高度[+0h,+24h]区间外，直接返回不存在，因为会被内存池过滤
             if (transaction.ValidUntilBlock - NativeContract.Ledger.CurrentIndex(StoreView) < 0 || transaction.ValidUntilBlock - NativeContract.Ledger.CurrentIndex(StoreView) > Settings.MaxValidUntilBlockIncrement)
                 return 1;
-            if (!preBloomFilters[0].Check(transaction.Hash.ToArray()) && !preBloomFilters[1].Check(transaction.Hash.ToArray())) return 1;
-            return -1;
+            if (!preBloomFilters[0].Check(transaction.Hash.ToArray()) && !preBloomFilters[1].Check(transaction.Hash.ToArray())) return -1;
+            return 0;
         }
     }
 }
